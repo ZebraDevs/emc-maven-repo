@@ -1,0 +1,167 @@
+# Warning this file must be saved with Unix line endings!!!
+ui_print("Updating Zebra Technology Enterprise Device OS Update");
+show_progress(0.100000, 0);
+
+ifelse(getprop("ro.product.manufacturer") == "Zebra Technologies",
+(
+    show_progress(0.200000, 0);
+    <% if (mountData != null && mountData.size() > 0){ %>
+    ui_print("Mounting Data folder");
+    ifelse( getprop("ro.product.device") == "MC32" ||
+        getprop("ro.product.device") == "MC40" ||
+        getprop("ro.product.device") == "MC18" ||
+        getprop("ro.product.device") == "MC92" ||
+        getprop("ro.product.device") == "MC67" ||
+        getprop("ro.product.device") == "ET1" ,
+    (
+        mount("ext4", "EMMC", "/dev/block/platform/omap/omap_hsmmc.1/by-name/userdata", "/data");
+    ),
+    (
+        ifelse( getprop("ro.product.device") == "WT6000" ,
+        (
+            mount("ext4", "EMMC", "/dev/block/platform/soc0/soc.0/by-name/userdata", "/data");
+        ),
+        (
+            mount("ext4", "EMMC", "/dev/block/platform/msm_sdcc.1/by-name/userdata", "/data");
+        )
+        );
+    )
+    );
+
+    <%if(mountData.assert_commands != null && mountData.assert_commands.size() > 0){
+        out << "ui_print(\"Assert Starts ...\");\n"
+        mountData.assert_commands.each{
+            if(trace){
+                out << "\n"
+                out << "\tui_print(\"Assert ${it} \");\n"
+            }
+            out << "\tassert ${it};\n"
+        }
+    }
+
+    if(mountData.commands != null && mountData.commands.size() > 0){
+        out << "ui_print(\"Assert Starts ...\");\n"
+        mountData.commands.each{
+            out << "\t${it};\n"
+        }
+    }
+
+    if(mountData.delete != null && mountData.delete.size() > 0){
+        out << "ui_print(\"Deleting Files From /data Partition\");\n"
+        mountData.delete.each{
+            if(trace){
+                out << "\n"
+                out << "\tui_print(\"Deleting ${it} \");\n"
+            }
+            out << "\tdelete(\"${it}\");\n"
+        }
+    }%>
+
+
+
+    ui_print("Unmounting data folder ");
+    unmount("/data");
+    <%}%>
+
+    <% if(mountSystem != null && mountSystem.size() > 0){%>
+    ui_print("mounting system folder...");
+
+    ifelse(getprop("ro.system.mount"), mount("ext4", "EMMC", getprop("ro.system.mount"), "/system"),mount("ext4", "EMMC", "/dev/block/platform/mmci-omap-hs.1/by-name/system", "/system"));
+
+    <%if(mountSystem.package_extract_dir != null && mountSystem.package_extract_dir.size() > 0){%>
+    ui_print("Extracting Packages and Setting Permission using set_metadata ...");
+    ifelse ((getprop("ro.build.version.release") == "4.1.1" || getprop("ro.build.version.release") == "4.1.2"),
+    (
+         <%mountSystem.package_extract_dir.each {
+            def files = mountSystem.set_meta_for_package_extract_dir["${it['from']}"]
+            if(it['from'].contains('priv-app')){
+                if(trace){
+                    out << "\n"
+                    out << "\t\tui_print(\"Extracting ${it['from']} To /system/app\");\n"
+                }
+                out << "\t\tpackage_extract_dir(\"${it['from']}\", \"/system/app\");\n"
+
+                files.each{
+                    if(trace){
+                        out << "\n"
+                        out << "\t\tui_print(\"Setting Permission 0644 to ${it.split('/').last()}\");\n"
+                    }
+                    out << "\t\tset_metadata(\"/system/app/${it.split('/').last()}\", \"uid\", 0, \"gid\", 0, \"mode\", 0644, \"capabilities\", 0x0, \"selabel\", \"u:object_r:system_file:s0\");\n"
+                }
+            } else {
+                if(trace){
+                    out << "\n"
+                    out << "\t\tui_print(\"Extracting ${it['from']} To ${it['to']}\");\n"
+                }
+                out << "\t\tpackage_extract_dir(\"${it['from']}\", \"${it['to']}\");\n"
+                files.each{
+                    if(trace){
+                        out << "\n"
+                        out << "\t\tui_print(\"Setting Permission 0644 to ${it}\");\n"
+                    }
+                    out << "\t\tset_metadata(\"${it}\", \"uid\", 0, \"gid\", 0, \"mode\", 0644, \"capabilities\", 0x0, \"selabel\", \"u:object_r:system_file:s0\");\n"
+                }
+            }
+        }%>
+    ),
+    (
+
+        ifelse(less_than_int (getprop("ro.build.version.sdk"), "21"),
+        (
+        <%mountSystem.package_extract_dir.each {
+            if(trace){
+                out << "\n"
+                out << "\t\t\tui_print(\"Extracting ${it['from']} To ${it['to']}\");\n"
+            }
+            out << "\t\t\tpackage_extract_dir(\"${it['from']}\", \"${it['to']}\");\n"
+            def files = mountSystem.set_meta_for_package_extract_dir["${it['from']}"]
+            files.each{
+                if(trace){
+                    out << "\n"
+                    out << "\t\t\tui_print(\"Setting Permission 0644 to ${it}\");\n"
+                }
+            out << "\t\t\tset_metadata(\"${it}\", \"uid\", 0, \"gid\", 0, \"mode\", 0644, \"capabilities\", 0x0, \"selabel\", \"u:object_r:system_file:s0\");\n"
+            }
+
+        }%>
+        ),
+        (
+        <%boolean flag = false
+        mountSystem.package_extract_dir.each {
+            if(it['from'].contains('priv-app') && flag != true){
+                def fromPath = it['from'].split('/priv-app')[0]+"/priv-app"
+                if(trace){
+                    out << "\n"
+                    out << "\t\t\tui_print(\"Extracting ${fromPath} To ${it['to']}\");\n"
+                }
+                out << "\t\t\tpackage_extract_dir(\"${fromPath}\", \"${it['to']}\");\n"
+                flag = true
+            } else if(!it['from'].contains('priv-app')) {
+                if(trace){
+                    out << "\n"
+                    out << "\t\t\tui_print(\"Extracting ${it['from']} To ${it['to']}\");\n"
+                }
+                out << "\t\t\tpackage_extract_dir(\"${it['from']}\", \"${it['to']}\");\n"
+            }
+            def files = mountSystem.set_meta_for_package_extract_dir["${it['from']}"]
+            files.each{
+                if(trace){
+                    out << "\n"
+                    out << "\t\t\tui_print(\"Setting Permission 0644 to ${it}\");\n"
+                }
+                out << "\t\t\tset_metadata(\"${it}\", \"uid\", 0, \"gid\", 0, \"mode\", 0644, \"capabilities\", 0x0, \"selabel\", \"u:object_r:system_file:s0\");\n"
+            }
+        }
+        %>
+        )
+        );
+    )
+    );
+    <%}%>
+    unmount("/system");
+    <%}%>
+),
+(
+    ui_print("Update Failed !!!");
+)
+);
